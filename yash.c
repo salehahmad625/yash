@@ -38,7 +38,7 @@ int numTokens(char *str)
 
 char **parseString(char *str)
 {
-    char **arrOfChars = (char **)malloc((1000) * sizeof(char *)); //alternatively set big number to wc
+    char **arrOfChars = (char **)malloc((1000) * sizeof(char *));
     char *token = (char *)malloc(30 * sizeof(char));
     int ind = 0;
     while (token = strtok_r(str, " ", &str))
@@ -54,12 +54,46 @@ void sig_handler(int signo)
     switch (signo)
     {
     case SIGINT:
-        printf("Hi");
         exit(0);
         break;
     case SIGTSTP:
         exit(0);
     }
+}
+
+void execLine(char **parsedcmd, int lastArgInd)
+{
+    int inputInd = indOfSym(parsedcmd, "<");
+    int outputInd = indOfSym(parsedcmd, ">");
+    int errInd = indOfSym(parsedcmd, "2>");
+
+    if (inputInd > -1)
+    {
+        char *file = parsedcmd[inputInd + 1];
+        int fd = open(file, O_RDONLY);
+        dup2(fd, 0);
+        lastArgInd = min(lastArgInd, inputInd - 1);
+    }
+    if (outputInd > -1)
+    {
+        char *file = parsedcmd[outputInd + 1];
+        int fd = open(file, O_WRONLY);
+        dup2(fd, 1);
+        lastArgInd = min(lastArgInd, outputInd - 1);
+    }
+    if (errInd > -1)
+    {
+        char *file = parsedcmd[errInd + 1];
+        int fd = open(file, O_WRONLY);
+        dup2(fd, 2);
+        lastArgInd = min(lastArgInd, errInd - 1);
+    }
+    char **argSub = (char **)malloc(500 * sizeof(char *));
+    for (int i = 0; i <= lastArgInd; i++)
+    {
+        argSub[i] = parsedcmd[i];
+    }
+    execvp(argSub[0], argSub);
 }
 
 int main(int argc, char **argv)
@@ -112,68 +146,26 @@ int main(int argc, char **argv)
                 {
                     close(pfd[0]);
                     dup2(pfd[1], STDOUT_FILENO);
-                    execvp(leftSub[0], leftSub);
+                    execLine(leftSub, pipeInd - 1);
                 }
                 pid_t p2 = fork();
                 if (p2 == 0)
                 {
                     close(pfd[1]);
                     dup2(pfd[0], STDIN_FILENO);
-                    execvp(rightSub[0], rightSub);
+                    execLine(rightSub, numArgs - 1 - pipeInd);
                 }
                 close(pfd[0]);
                 close(pfd[1]);
-                // waitpid(p1, NULL, 0);
-                // waitpid(p2, NULL, 0);
                 wait((int *)NULL);
                 wait((int *)NULL);
                 continue;
             }
-            int inputInd = indOfSym(parsedcmd, "<");
-            int outputInd = indOfSym(parsedcmd, ">");
-            int errInd = indOfSym(parsedcmd, "2>");
-            int lastArgInd = numArgs - 1;
-            if (inputInd > -1)
-            {
-                char *file = parsedcmd[inputInd + 1];
-                int fd = open(file, O_RDONLY);
-                dup2(fd, 0);
-                lastArgInd = min(lastArgInd, inputInd - 1);
-            }
-            if (outputInd > -1)
-            {
-                char *file = parsedcmd[outputInd + 1];
-                int fd = open(file, O_WRONLY);
-                dup2(fd, 1);
-                lastArgInd = min(lastArgInd, outputInd - 1);
-            }
-            if (errInd > -1)
-            {
-                char *file = parsedcmd[errInd + 1];
-                int fd = open(file, O_WRONLY);
-                dup2(fd, 2);
-                lastArgInd = min(lastArgInd, errInd - 1);
-            }
-            char **argSub = (char **)malloc(500 * sizeof(char *));
-            for (int i = 0; i <= lastArgInd; i++)
-            {
-                argSub[i] = parsedcmd[i];
-            }
-            execvp(argSub[0], argSub);
-            // if (containsOutput(parsedcmd))
-            // {
-            //     execOutRedirect(numArgs, parsedcmd);
-            // }
-            // if (containsInput(parsedcmd))
-            // {
-            //     execInRedirect(numArgs, parsedcmd);
-            // }
-            //execvp(parsedcmd[0], parsedcmd);
+            execLine(parsedcmd, numArgs - 1);
         }
         else
         {
             wait((int *)NULL);
         }
-        //execvp(parsedcmd[0], parsedcmd);
     }
 }
