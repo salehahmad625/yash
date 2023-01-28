@@ -31,6 +31,40 @@ typedef struct Job
 Job *head = NULL;
 Job *tail = NULL;
 
+Job *doneListTail = NULL;
+
+void clearDoneList()
+{
+    printf("outside while");
+    while (doneListTail != NULL)
+    {
+        Job *prev = doneListTail->prev;
+        free(doneListTail);
+        doneListTail = prev;
+    }
+}
+
+void addToDoneList(pid_t job_id, pid_t job_pgid, char *cmdstr, char *procStatus, int jobNum)
+{
+    Job *job = (Job *)malloc(sizeof(Job));
+    job->job_pid = job_id;
+    job->pgid = job_pgid;
+    job->jobstring = cmdstr;
+    job->status = procStatus;
+    job->jobNum = jobNum;
+    job->next = NULL;
+    job->prev = doneListTail;
+    if (doneListTail == NULL)
+    {
+        doneListTail = job;
+    }
+    else
+    {
+        doneListTail->next = job;
+        doneListTail = job;
+    }
+}
+
 Job *findJobByPID(pid_t pid)
 {
     Job *ptr = head;
@@ -82,6 +116,7 @@ void removeFromJobList(pid_t pid)
     }
     else if (indOfPid == tail)
     {
+        toRemove.prev->next = NULL;
         tail = toRemove.prev;
     }
     else
@@ -95,29 +130,104 @@ void removeFromJobList(pid_t pid)
 
 void displayJobs()
 {
+    Job *doneIt = doneListTail;
+    bool mostRecentIsDone = false;
+    while (doneIt != NULL)
+    {
+        if (tail == NULL && !mostRecentIsDone || tail != NULL && doneListTail->jobNum > tail->jobNum)
+        {
+            printf("[%d]+\t%s\t\t\t%s\n", doneListTail->jobNum, doneListTail->status, doneListTail->jobstring);
+            mostRecentIsDone = true;
+        }
+        else
+        {
+            printf("[%d]-\t%s\t\t\t%s\n", doneIt->jobNum, doneIt->status, doneIt->jobstring);
+        }
+        doneIt = doneIt->prev;
+    }
+    clearDoneList();
     if (head == NULL)
     {
         return;
     }
     Job *it = head;
-    while (it->next != NULL)
+    while (it != NULL)
     {
+        if (!mostRecentIsDone && it == tail)
+        {
+            printf("[%d]+\t%s\t\t\t%s\n", it->jobNum, it->status, it->jobstring);
+            break;
+        }
         printf("[%d]-\t%s\t\t\t%s\n", it->jobNum, it->status, it->jobstring);
         it = it->next;
     }
-    printf("[%d]+\t%s\t\t\t%s\n", it->jobNum, it->status, it->jobstring);
+}
+
+Job *findLastStopped()
+{
+    if (head == NULL)
+    {
+        return NULL;
+    }
+    Job *it = tail;
+    char *str = "Stopped";
+    while (it != NULL)
+    {
+        if (strcmp(it->status, str) == 0)
+        {
+            return it;
+        }
+        it = it->prev;
+    }
+    return NULL;
 }
 
 void backgroundJob()
 {
+    if (findLastStopped() == NULL)
+    {
+        return;
+    }
+    Job *lastStopped = findLastStopped();
+    kill(-1 * lastStopped->pgid, SIGCONT);
+    lastStopped->status = "Running";
+    displayJobs();
 }
 
-void foregroundJob()
+void foregroundJob(pid_t shellpid)
 {
-    kill(-1 * tail->pgid, SIGCONT);
-    tcsetpgrp(0, tail->pgid);
-    printf("%s\n", tail->jobstring);
-    removeFromJobList(tail->job_pid);
+    Job *lastStopped = findLastStopped();
+    if (lastStopped == NULL)
+    {
+        return;
+    }
+    int last_pgid = lastStopped->pgid;
+    char *jobStr = lastStopped->jobstring;
+    signal(SIGTTIN, SIG_IGN);
+    signal(SIGTTOU, SIG_IGN);
+    signal(SIGINT, SIG_DFL);
+    signal(SIGTSTP, SIG_DFL);
+    tcsetpgrp(0, last_pgid);
+    kill(-1 * last_pgid, SIGCONT);
+    printf("%s\n", jobStr);
+    removeFromJobList(lastStopped->job_pid);
+    int status;
+    pid_t wait_pid;
+    do
+    {
+        wait_pid = waitpid(-1 * last_pgid, &status, WUNTRACED);
+    } while (!WIFEXITED(status) && !WIFSIGNALED(status) && !WIFSTOPPED(status));
+    bool stopped = WIFSTOPPED(status);
+    if (stopped)
+    {
+        signal(SIGINT, SIG_IGN);
+        signal(SIGTSTP, SIG_IGN);
+        tcsetpgrp(0, getpgid(shellpid));
+        addToJobList(last_pgid, last_pgid, jobStr, "Stopped");
+    }
+    signal(SIGINT, SIG_IGN);
+    signal(SIGTSTP, SIG_IGN);
+    tcsetpgrp(0, getpgid(shellpid));
 }
 
 int indOfSym(char **arr, char *sym)
@@ -161,8 +271,33 @@ char **parseString(char *str)
 
 void sigchild_handler(int signo)
 {
+    Job *it = head;
     int status;
-    // removeFromJobList();
+    pid_t wait_pid;
+    char *done = "Done";
+    // while (wait_pid = waitpid(-1, &status, WNOHANG) > 0)
+    // {
+    //     printf("here");
+    //     printf("%d", wait_pid);
+    //     Job *finished = findJobByPID(wait_pid); //
+    //     finished->status = done;
+    //     addToDoneList(finished->job_pid, finished->pgid, finished->jobstring, finished->status, finished->jobNum);
+    //     removeFromJobList(finished->job_pid);
+    // }
+    while (it != NULL)
+    {
+        while (wait_pid = waitpid(it->job_pid, &status, WNOHANG) > 0)
+        {
+            if (WIFEXITED(status))
+            {
+                it->status = done;
+                addToDoneList(it->job_pid, it->pgid, it->jobstring, it->status, it->jobNum);
+                removeFromJobList(it->job_pid);
+            }
+            // it = it->next;
+        }
+        it = it->next;
+    }
 }
 
 void execLine(char **parsedcmd, int lastArgInd)
@@ -295,7 +430,7 @@ int main(int argc, char **argv)
         else if (numArgs == 1 && indOfSym(parsedcmd, "fg") == 0)
         {
             // fg
-            foregroundJob();
+            foregroundJob(shellpid);
         }
         else if (numArgs == 1 && indOfSym(parsedcmd, "jobs") == 0)
         {
@@ -340,17 +475,22 @@ int main(int argc, char **argv)
 
                 int status;
                 pid_t wait_pid = waitpid(-1 * cmdfork, &status, WUNTRACED);
-                bool stopped = WIFSTOPPED(status); // tells us if process was stopped (true) or terminated (false)
+                bool stopped = WIFSTOPPED(status); // tells us if process was stopped (true)
                 if (stopped)
                 {
                     // add to jobs list
                     addToJobList(cmdfork, cmdfork, jobStr, "Stopped"); // might have to strdup inString
                     tcsetpgrp(0, getpgid(shellpid));
                 }
-                else
-                {
-                    tcsetpgrp(0, getpgid(shellpid));
-                }
+                // bool exited = WIFEXITED(status);
+                // if (exited)
+                // {
+                //     tcsetpgrp(0, getpgid(shellpid));
+                // }
+                // else
+                // {
+                //     tcsetpgrp(0, getpgid(shellpid));
+                // }
             }
         }
         tcsetpgrp(0, getpgid(shellpid));
