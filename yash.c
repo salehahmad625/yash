@@ -35,7 +35,6 @@ Job *doneListTail = NULL;
 
 void clearDoneList()
 {
-    printf("outside while");
     while (doneListTail != NULL)
     {
         Job *prev = doneListTail->prev;
@@ -46,6 +45,8 @@ void clearDoneList()
 
 void addToDoneList(pid_t job_id, pid_t job_pgid, char *cmdstr, char *procStatus, int jobNum)
 {
+    printf("adding to done list...");
+    fflush(stdout);
     Job *job = (Job *)malloc(sizeof(Job));
     job->job_pid = job_id;
     job->pgid = job_pgid;
@@ -108,11 +109,20 @@ void addToJobList(pid_t job_id, pid_t job_pgid, char *cmdstr, char *procStatus)
 void removeFromJobList(pid_t pid)
 {
     Job *indOfPid = findJobByPID(pid);
+    if (indOfPid == NULL)
+    {
+        return;
+    }
     Job toRemove = *indOfPid;
-    if (indOfPid == head)
+    if (tail == head)
     {
         head = NULL;
         tail = NULL;
+    }
+    else if (indOfPid == head)
+    {
+        toRemove.next->prev = NULL;
+        head = toRemove.next;
     }
     else if (indOfPid == tail)
     {
@@ -191,7 +201,14 @@ void backgroundJob()
     Job *lastStopped = findLastStopped();
     kill(-1 * lastStopped->pgid, SIGCONT);
     lastStopped->status = "Running";
-    displayJobs();
+    char *plusOrMin = "+";
+    if (lastStopped->jobNum < tail->jobNum)
+    {
+        plusOrMin = "-";
+    }
+    char *amp = " &";
+    strcat(lastStopped->jobstring, amp);
+    printf("[%d]%s\t%s\n", lastStopped->jobNum, plusOrMin, lastStopped->jobstring);
 }
 
 void foregroundJob(pid_t shellpid)
@@ -275,26 +292,19 @@ void sigchild_handler(int signo)
     int status;
     pid_t wait_pid;
     char *done = "Done";
-    // while (wait_pid = waitpid(-1, &status, WNOHANG) > 0)
-    // {
-    //     printf("here");
-    //     printf("%d", wait_pid);
-    //     Job *finished = findJobByPID(wait_pid); //
-    //     finished->status = done;
-    //     addToDoneList(finished->job_pid, finished->pgid, finished->jobstring, finished->status, finished->jobNum);
-    //     removeFromJobList(finished->job_pid);
-    // }
+    printf("%p", it);
     while (it != NULL)
     {
-        while (wait_pid = waitpid(it->job_pid, &status, WNOHANG) > 0)
+        if (wait_pid = waitpid(it->job_pid, &status, WNOHANG) > 0) // change back to while loop?
         {
             if (WIFEXITED(status))
             {
                 it->status = done;
+                printf("a job finished...");
+                fflush(stdout);
                 addToDoneList(it->job_pid, it->pgid, it->jobstring, it->status, it->jobNum);
                 removeFromJobList(it->job_pid);
             }
-            // it = it->next;
         }
         it = it->next;
     }
@@ -302,11 +312,6 @@ void sigchild_handler(int signo)
 
 void execLine(char **parsedcmd, int lastArgInd)
 {
-    // setpgid(cpid, cpid);  do this here or in main? pro: can access cpid, con(?): need to do in pipe as well
-    // tcsetpgrp(0, getpgrp() ?) set terminal control to process group that is abt to be executed
-    // tcsetpgrp(0, getpgrp());
-    // signal(SIGINT, SIG_DFL); //any process/job that is executed must call execLine, so we set signal in the method here
-    // signal(SIGTSTP, SIG_DFL);
 
     int inputInd = indOfSym(parsedcmd, "<");
     int outputInd = indOfSym(parsedcmd, ">");
@@ -482,15 +487,6 @@ int main(int argc, char **argv)
                     addToJobList(cmdfork, cmdfork, jobStr, "Stopped"); // might have to strdup inString
                     tcsetpgrp(0, getpgid(shellpid));
                 }
-                // bool exited = WIFEXITED(status);
-                // if (exited)
-                // {
-                //     tcsetpgrp(0, getpgid(shellpid));
-                // }
-                // else
-                // {
-                //     tcsetpgrp(0, getpgid(shellpid));
-                // }
             }
         }
         tcsetpgrp(0, getpgid(shellpid));
