@@ -8,6 +8,7 @@
 #include <readline/history.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <errno.h>
 #define min(x, y) (((x) < (y)) ? (x) : (y))
 
 typedef enum
@@ -27,7 +28,6 @@ typedef struct Job
     struct Job *prev;
 } Job;
 
-// Job **jobList;
 Job *head = NULL;
 Job *tail = NULL;
 
@@ -45,8 +45,8 @@ void clearDoneList()
 
 void addToDoneList(pid_t job_id, pid_t job_pgid, char *cmdstr, char *procStatus, int jobNum)
 {
-    printf("adding to done list...");
-    fflush(stdout);
+    // printf("adding to done list...\n");
+    // fflush(stdout);
     Job *job = (Job *)malloc(sizeof(Job));
     job->job_pid = job_id;
     job->pgid = job_pgid;
@@ -82,6 +82,9 @@ Job *findJobByPID(pid_t pid)
 
 void addToJobList(pid_t job_id, pid_t job_pgid, char *cmdstr, char *procStatus)
 {
+    // printf("adding to job list...\n");
+    // fflush(stdout);
+
     Job *job = (Job *)malloc(sizeof(Job));
     job->job_pid = job_id;
     job->pgid = job_pgid;
@@ -91,6 +94,10 @@ void addToJobList(pid_t job_id, pid_t job_pgid, char *cmdstr, char *procStatus)
     if (head == NULL)
     {
         head = job;
+        // printf("HEAD NOT NULL\n");
+        // fflush(stdout);
+        // printf("%p\n", head);
+        // fflush(stdout);
         tail = job;
         job->jobNum = 1;
         job->prev = NULL;
@@ -104,6 +111,10 @@ void addToJobList(pid_t job_id, pid_t job_pgid, char *cmdstr, char *procStatus)
         tail->next = job;
         tail = job;
     }
+    // printf("%p\n", head);
+    // fflush(stdout);
+    // printf("finished adding to joblist\n");
+    // fflush(stdout);
 }
 
 void removeFromJobList(pid_t pid)
@@ -140,37 +151,74 @@ void removeFromJobList(pid_t pid)
 
 void displayJobs()
 {
+    // printf("beginning of displayjobs\n");
+    // fflush(stdout);
+    // printf("%p\n", head);
+    // fflush(stdout);
     Job *doneIt = doneListTail;
     bool mostRecentIsDone = false;
+    char *amp = " &";
+    // printf("...after amp\n");
+    // fflush(stdout);
     while (doneIt != NULL)
     {
-        if (tail == NULL && !mostRecentIsDone || tail != NULL && doneListTail->jobNum > tail->jobNum)
+        // printf("inside while?\n");
+        // fflush(stdout);
+        char *strWithAmp = strdup(doneIt->jobstring);
+        strcat(strWithAmp, amp);
+        if (tail == NULL && !mostRecentIsDone || tail != NULL && doneListTail->jobNum > tail->jobNum) // no jobs in job list OR most recent is job is done, SO print with +
         {
-            printf("[%d]+\t%s\t\t\t%s\n", doneListTail->jobNum, doneListTail->status, doneListTail->jobstring);
+            printf("[%d]+\t%s\t\t\t%s\n", doneListTail->jobNum, doneListTail->status, strWithAmp);
             mostRecentIsDone = true;
         }
         else
         {
-            printf("[%d]-\t%s\t\t\t%s\n", doneIt->jobNum, doneIt->status, doneIt->jobstring);
+            printf("[%d]-\t%s\t\t\t%s\n", doneIt->jobNum, doneIt->status, strWithAmp);
         }
         doneIt = doneIt->prev;
     }
     clearDoneList();
+    // printf("after clearing done\n");
+    // fflush(stdout);
     if (head == NULL)
     {
+        // printf("head is null\n");
+        // fflush(stdout);
         return;
     }
     Job *it = head;
     while (it != NULL)
     {
+        // printf("inside jobs list while...\n");
+        // fflush(stdout);
+        char *strWithAmp = strdup(it->jobstring);
+
+        strcat(strWithAmp, amp);
+
         if (!mostRecentIsDone && it == tail)
         {
-            printf("[%d]+\t%s\t\t\t%s\n", it->jobNum, it->status, it->jobstring);
+            if (strcmp(it->status, "Running") == 0)
+            {
+                printf("[%d]+\t%s\t\t\t%s\n", it->jobNum, it->status, strWithAmp);
+            }
+            else
+            {
+                printf("[%d]+\t%s\t\t\t%s\n", it->jobNum, it->status, it->jobstring);
+            }
             break;
         }
-        printf("[%d]-\t%s\t\t\t%s\n", it->jobNum, it->status, it->jobstring);
+        if (strcmp(it->status, "Running") == 0)
+        {
+            printf("[%d]-\t%s\t\t\t%s\n", it->jobNum, it->status, strWithAmp);
+        }
+        else
+        {
+            printf("[%d]-\t%s\t\t\t%s\n", it->jobNum, it->status, it->jobstring);
+        }
         it = it->next;
     }
+    // printf("done with displayJobs..\n");
+    // fflush(stdout);
 }
 
 Job *findLastStopped()
@@ -206,20 +254,21 @@ void backgroundJob()
     {
         plusOrMin = "-";
     }
-    char *amp = " &";
-    strcat(lastStopped->jobstring, amp);
-    printf("[%d]%s\t%s\n", lastStopped->jobNum, plusOrMin, lastStopped->jobstring);
+    char *amp = " &"; // might've already been a background job, need to check if string alr has the &
+    // JOBSTRING SHOULD NEVER HAVE THE AMPERSAND IN IT
+    char *dispStr = strdup(lastStopped->jobstring);
+    strcat(dispStr, amp);
+    printf("[%d]%s\t%s\n", lastStopped->jobNum, plusOrMin, dispStr);
 }
 
 void foregroundJob(pid_t shellpid)
 {
-    Job *lastStopped = findLastStopped();
-    if (lastStopped == NULL)
+    if (tail == NULL)
     {
         return;
     }
-    int last_pgid = lastStopped->pgid;
-    char *jobStr = lastStopped->jobstring;
+    int last_pgid = tail->pgid;
+    char *jobStr = tail->jobstring;
     signal(SIGTTIN, SIG_IGN);
     signal(SIGTTOU, SIG_IGN);
     signal(SIGINT, SIG_DFL);
@@ -227,7 +276,7 @@ void foregroundJob(pid_t shellpid)
     tcsetpgrp(0, last_pgid);
     kill(-1 * last_pgid, SIGCONT);
     printf("%s\n", jobStr);
-    removeFromJobList(lastStopped->job_pid);
+    removeFromJobList(tail->job_pid);
     int status;
     pid_t wait_pid;
     do
@@ -292,7 +341,8 @@ void sigchild_handler(int signo)
     int status;
     pid_t wait_pid;
     char *done = "Done";
-    printf("%p", it);
+    // printf("in child handler\n");
+    // fflush(stdout);
     while (it != NULL)
     {
         if (wait_pid = waitpid(it->job_pid, &status, WNOHANG) > 0) // change back to while loop?
@@ -300,8 +350,8 @@ void sigchild_handler(int signo)
             if (WIFEXITED(status))
             {
                 it->status = done;
-                printf("a job finished...");
-                fflush(stdout);
+                // printf("a job finished...");
+                // fflush(stdout);
                 addToDoneList(it->job_pid, it->pgid, it->jobstring, it->status, it->jobNum);
                 removeFromJobList(it->job_pid);
             }
@@ -343,10 +393,13 @@ void execLine(char **parsedcmd, int lastArgInd)
     {
         argSub[i] = parsedcmd[i];
     }
+    // printf("all the way here: ptr is %p\n", head);
+    // fflush(stdout);
     execvp(argSub[0], argSub);
+    return;
 }
 
-void pipeExec(char **parsedcmd, int numArgs)
+void pipeExec(char **parsedcmd, int numArgs, bool bg)
 {
     int pipeInd = indOfSym(parsedcmd, "|");
 
@@ -375,7 +428,7 @@ void pipeExec(char **parsedcmd, int numArgs)
         dup2(pfd[1], STDOUT_FILENO);
         execLine(leftSub, pipeInd - 1);
     }
-    // setpgid(p1, 0);
+    setpgid(p1, 0);
     pid_t p2 = fork();
     if (p2 == 0)
     {
@@ -383,7 +436,7 @@ void pipeExec(char **parsedcmd, int numArgs)
         signal(SIGTSTP, SIG_DFL);
         signal(SIGTTIN, SIG_IGN);
         signal(SIGTTOU, SIG_IGN);
-        // setpgid(0, p1);
+        setpgid(getpid(), p1);
         close(pfd[1]);
         dup2(pfd[0], STDIN_FILENO);
         execLine(rightSub, numArgs - 1 - pipeInd);
@@ -391,14 +444,22 @@ void pipeExec(char **parsedcmd, int numArgs)
     // tcsetpgrp(0, p1);
     close(pfd[0]);
     close(pfd[1]);
-    wait((int *)NULL);
-    wait((int *)NULL);
+    if (!bg)
+    {
+        wait((int *)NULL);
+        wait((int *)NULL);
+    }
+    else
+    {
+        waitpid(p1, NULL, WNOHANG);
+        waitpid(p2, NULL, WNOHANG);
+    }
 }
 
 int main(int argc, char **argv)
 {
-    head = NULL;
-    tail = NULL;
+    // head = NULL;
+    // tail = NULL;
 
     pid_t shellpid = getpid();
 
@@ -423,33 +484,107 @@ int main(int argc, char **argv)
 
         free(strDup);
 
+        bool runInBG = false;
+        char *ifAmp;
+
+        // printf("%p\n", head);
+        // fflush(stdout);
+        // printf("%p\n", tail);
+        // fflush(stdout);
+
+        if (numArgs > 1 && strcmp(parsedcmd[numArgs - 1], "&") == 0)
+        {
+            parsedcmd[numArgs - 1] = NULL;
+            runInBG = true;
+            ifAmp = strdup(jobStr);
+            int size = strlen(ifAmp);
+            ifAmp[size - 1] = '\0'; // doesnt get rid of space before & -- could be problem
+            ifAmp[size - 2] = '\0';
+        }
+
         if (numArgs == 0)
         {
             continue;
         }
         else if (numArgs == 1 && indOfSym(parsedcmd, "bg") == 0)
         {
-            // bg
             backgroundJob();
         }
         else if (numArgs == 1 && indOfSym(parsedcmd, "fg") == 0)
         {
-            // fg
             foregroundJob(shellpid);
         }
         else if (numArgs == 1 && indOfSym(parsedcmd, "jobs") == 0)
         {
             displayJobs();
-            // jobs
-            // display list of jobs. We have head ptr to jobs linked list, write printJobs method & output to console
         }
-        else if (indOfSym(parsedcmd, "|") > -1)
+        else if (indOfSym(parsedcmd, "|") > -1 && !runInBG)
         {
-            pipeExec(parsedcmd, numArgs);
+            pipeExec(parsedcmd, numArgs, runInBG);
         }
 
-        // execute command normally
-        else
+        // execute command in background
+        else if (runInBG)
+        {
+            pid_t ampfork = fork();
+            if (ampfork == 0)
+            {
+                signal(SIGINT, SIG_DFL);
+                signal(SIGTSTP, SIG_DFL);
+                signal(SIGTTIN, SIG_IGN);
+                signal(SIGTTOU, SIG_IGN);
+                setpgid(0, 0);
+                pid_t currPid = getpid();
+                // printf("before calling addtojoblist\n");
+                // fflush(stdout);
+                //  addToJobList(currPid, currPid, ifAmp, "Running");
+                //  displayJobs();
+                // printf("added to job list hopefully..\n");
+                // fflush(stdout);
+                // printf("%p\n", head);
+                // fflush(stdout);
+                // tcsetpgrp(0, getpgid(shellpid));
+                if (indOfSym(parsedcmd, "|") > -1)
+                {
+                    pipeExec(parsedcmd, numArgs - 1, runInBG);
+                }
+                else
+                {
+                    execLine(parsedcmd, numArgs - 2);
+                    continue;
+                }
+
+                // exit(1);
+                printf("wat is happenings\n");
+                fflush(stdout);
+                // removeFromJobList(currPid);
+                // exit(1);
+            }
+            else
+            {
+                // printf("is parent reached?\n");
+                // fflush(stdout);
+                setpgid(ampfork, ampfork);
+                // tcsetpgrp(0, getpgid(shellpid));
+                //  signal(SIGCHLD, &sigchild_handler);
+                int status; // HOW DO I
+                addToJobList(ampfork, ampfork, ifAmp, "Running");
+                pid_t pid = waitpid(-1 * ampfork, &status, WNOHANG);
+                // int num = WIFEXITED(status);
+                // if (num == 0)
+                // {
+                //     printf("num = 0: %d\n", num);
+                //     fflush(stdout);
+                // }
+                // else
+                // {
+                //     addToJobList(ampfork, ampfork, ifAmp, "Running");
+                //     printf("%d\n", num);
+                //     fflush(stdout);
+                // }
+            }
+        }
+        else // execute process in fg
         {
             pid_t cmdfork = fork();
 
@@ -460,31 +595,26 @@ int main(int argc, char **argv)
                 signal(SIGTTIN, SIG_IGN);
                 signal(SIGTTOU, SIG_IGN);
 
-                // pid_t pgid = getpid();
-                // setpgid(getpid(), pgid);
-                // tcsetpgrp(0, pgid);
-
                 setpgid(0, 0);
+
                 tcsetpgrp(0, getpid());
 
                 execLine(parsedcmd, numArgs - 1);
+
                 exit(1); // exits if invalid command
             }
             else
             {
-                // pid_t pgid = cmdfork;
-                // setpgid(cmdfork, pgid);
-                // tcsetpgrp(0, pgid);
                 setpgid(cmdfork, cmdfork);
                 tcsetpgrp(0, cmdfork);
 
                 int status;
                 pid_t wait_pid = waitpid(-1 * cmdfork, &status, WUNTRACED);
-                bool stopped = WIFSTOPPED(status); // tells us if process was stopped (true)
+                bool stopped = WIFSTOPPED(status); // tells us if process was stopped with ^Z (returns true)
                 if (stopped)
                 {
                     // add to jobs list
-                    addToJobList(cmdfork, cmdfork, jobStr, "Stopped"); // might have to strdup inString
+                    addToJobList(cmdfork, cmdfork, jobStr, "Stopped");
                     tcsetpgrp(0, getpgid(shellpid));
                 }
             }
