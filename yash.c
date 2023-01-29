@@ -456,6 +456,26 @@ void pipeExec(char **parsedcmd, int numArgs, bool bg)
     }
 }
 
+char *trimWhitespace(char *str)
+{
+    char *last;
+    while (*str == ' ')
+    {
+        str++;
+    }
+    if (*str == 0)
+    {
+        return str;
+    }
+    last = str + strlen(str) - 1;
+    while (last > str && *last == ' ')
+    {
+        last--;
+    }
+    last[1] = '\0';
+    return str;
+}
+
 int main(int argc, char **argv)
 {
     // head = NULL;
@@ -475,6 +495,7 @@ int main(int argc, char **argv)
 
     while (inString = readline("# "))
     {
+        inString = trimWhitespace(inString);
         char *strDup = strdup(inString);
 
         parsedcmd = parseString(inString);
@@ -498,8 +519,9 @@ int main(int argc, char **argv)
             runInBG = true;
             ifAmp = strdup(jobStr);
             int size = strlen(ifAmp);
-            ifAmp[size - 1] = '\0'; // doesnt get rid of space before & -- could be problem
-            ifAmp[size - 2] = '\0';
+            ifAmp[size - 1] = ' '; // doesnt get rid of space before/after & -- could be problem
+            ifAmp[size - 2] = ' ';
+            ifAmp = trimWhitespace(ifAmp);
         }
 
         if (numArgs == 0)
