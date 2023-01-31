@@ -45,8 +45,6 @@ void clearDoneList()
 
 void addToDoneList(pid_t job_id, pid_t job_pgid, char *cmdstr, char *procStatus, int jobNum)
 {
-    // printf("adding to done list...\n");
-    // fflush(stdout);
     Job *job = (Job *)malloc(sizeof(Job));
     job->job_pid = job_id;
     job->pgid = job_pgid;
@@ -82,8 +80,6 @@ Job *findJobByPID(pid_t pid)
 
 void addToJobList(pid_t job_id, pid_t job_pgid, char *cmdstr, char *procStatus)
 {
-    // printf("adding to job list...\n");
-    // fflush(stdout);
 
     Job *job = (Job *)malloc(sizeof(Job));
     job->job_pid = job_id;
@@ -94,10 +90,6 @@ void addToJobList(pid_t job_id, pid_t job_pgid, char *cmdstr, char *procStatus)
     if (head == NULL)
     {
         head = job;
-        // printf("HEAD NOT NULL\n");
-        // fflush(stdout);
-        // printf("%p\n", head);
-        // fflush(stdout);
         tail = job;
         job->jobNum = 1;
         job->prev = NULL;
@@ -111,10 +103,6 @@ void addToJobList(pid_t job_id, pid_t job_pgid, char *cmdstr, char *procStatus)
         tail->next = job;
         tail = job;
     }
-    // printf("%p\n", head);
-    // fflush(stdout);
-    // printf("finished adding to joblist\n");
-    // fflush(stdout);
 }
 
 void removeFromJobList(pid_t pid)
@@ -151,19 +139,11 @@ void removeFromJobList(pid_t pid)
 
 void displayJobs()
 {
-    // printf("beginning of displayjobs\n");
-    // fflush(stdout);
-    // printf("%p\n", head);
-    // fflush(stdout);
     Job *doneIt = doneListTail;
     bool mostRecentIsDone = false;
     char *amp = " &";
-    // printf("...after amp\n");
-    // fflush(stdout);
     while (doneIt != NULL)
     {
-        // printf("inside while?\n");
-        // fflush(stdout);
         char *strWithAmp = strdup(doneIt->jobstring);
         strcat(strWithAmp, amp);
         if (tail == NULL && !mostRecentIsDone || tail != NULL && doneListTail->jobNum > tail->jobNum) // no jobs in job list OR most recent is job is done, SO print with +
@@ -178,19 +158,13 @@ void displayJobs()
         doneIt = doneIt->prev;
     }
     clearDoneList();
-    // printf("after clearing done\n");
-    // fflush(stdout);
     if (head == NULL)
     {
-        // printf("head is null\n");
-        // fflush(stdout);
         return;
     }
     Job *it = head;
     while (it != NULL)
     {
-        // printf("inside jobs list while...\n");
-        // fflush(stdout);
         char *strWithAmp = strdup(it->jobstring);
 
         strcat(strWithAmp, amp);
@@ -217,8 +191,6 @@ void displayJobs()
         }
         it = it->next;
     }
-    // printf("done with displayJobs..\n");
-    // fflush(stdout);
 }
 
 Job *findLastStopped()
@@ -255,7 +227,6 @@ void backgroundJob()
         plusOrMin = "-";
     }
     char *amp = " &"; // might've already been a background job, need to check if string alr has the &
-    // JOBSTRING SHOULD NEVER HAVE THE AMPERSAND IN IT
     char *dispStr = strdup(lastStopped->jobstring);
     strcat(dispStr, amp);
     printf("[%d]%s\t%s\n", lastStopped->jobNum, plusOrMin, dispStr);
@@ -341,8 +312,6 @@ void sigchild_handler(int signo)
     int status;
     pid_t wait_pid;
     char *done = "Done";
-    // printf("in child handler\n");
-    // fflush(stdout);
     while (it != NULL)
     {
         if (wait_pid = waitpid(it->job_pid, &status, WNOHANG) > 0) // change back to while loop?
@@ -350,8 +319,6 @@ void sigchild_handler(int signo)
             if (WIFEXITED(status))
             {
                 it->status = done;
-                // printf("a job finished...");
-                // fflush(stdout);
                 addToDoneList(it->job_pid, it->pgid, it->jobstring, it->status, it->jobNum);
                 removeFromJobList(it->job_pid);
             }
@@ -371,20 +338,24 @@ void execLine(char **parsedcmd, int lastArgInd)
     {
         char *file = parsedcmd[inputInd + 1];
         int fd = open(file, O_RDONLY); // open returns -1 on error, use to fix hanging issue with wc example from FAQ
+        if (fd == -1)
+        {
+            exit(1);
+        }
         dup2(fd, 0);
         lastArgInd = min(lastArgInd, inputInd - 1);
     }
     if (outputInd > -1)
     {
         char *file = parsedcmd[outputInd + 1];
-        int fd = open(file, O_WRONLY);
+        int fd = open(file, O_RDWR | O_CREAT, 0777);
         dup2(fd, 1);
         lastArgInd = min(lastArgInd, outputInd - 1);
     }
     if (errInd > -1)
     {
         char *file = parsedcmd[errInd + 1];
-        int fd = open(file, O_WRONLY);
+        int fd = open(file, O_RDWR | O_CREAT, 0777);
         dup2(fd, 2);
         lastArgInd = min(lastArgInd, errInd - 1);
     }
@@ -393,8 +364,6 @@ void execLine(char **parsedcmd, int lastArgInd)
     {
         argSub[i] = parsedcmd[i];
     }
-    // printf("all the way here: ptr is %p\n", head);
-    // fflush(stdout);
     execvp(argSub[0], argSub);
     return;
 }
@@ -478,8 +447,6 @@ char *trimWhitespace(char *str)
 
 int main(int argc, char **argv)
 {
-    // head = NULL;
-    // tail = NULL;
 
     pid_t shellpid = getpid();
 
@@ -507,11 +474,6 @@ int main(int argc, char **argv)
 
         bool runInBG = false;
         char *ifAmp;
-
-        // printf("%p\n", head);
-        // fflush(stdout);
-        // printf("%p\n", tail);
-        // fflush(stdout);
 
         if (numArgs > 1 && strcmp(parsedcmd[numArgs - 1], "&") == 0)
         {
@@ -557,15 +519,6 @@ int main(int argc, char **argv)
                 signal(SIGTTOU, SIG_IGN);
                 setpgid(0, 0);
                 pid_t currPid = getpid();
-                // printf("before calling addtojoblist\n");
-                // fflush(stdout);
-                //  addToJobList(currPid, currPid, ifAmp, "Running");
-                //  displayJobs();
-                // printf("added to job list hopefully..\n");
-                // fflush(stdout);
-                // printf("%p\n", head);
-                // fflush(stdout);
-                // tcsetpgrp(0, getpgid(shellpid));
                 if (indOfSym(parsedcmd, "|") > -1)
                 {
                     pipeExec(parsedcmd, numArgs - 1, runInBG);
@@ -575,38 +528,16 @@ int main(int argc, char **argv)
                     execLine(parsedcmd, numArgs - 2);
                     continue;
                 }
-
-                // exit(1);
-                printf("wat is happenings\n");
-                fflush(stdout);
-                // removeFromJobList(currPid);
-                // exit(1);
             }
             else
             {
-                // printf("is parent reached?\n");
-                // fflush(stdout);
                 setpgid(ampfork, ampfork);
-                // tcsetpgrp(0, getpgid(shellpid));
-                //  signal(SIGCHLD, &sigchild_handler);
-                int status; // HOW DO I
+                int status;
                 addToJobList(ampfork, ampfork, ifAmp, "Running");
                 pid_t pid = waitpid(-1 * ampfork, &status, WNOHANG);
-                // int num = WIFEXITED(status);
-                // if (num == 0)
-                // {
-                //     printf("num = 0: %d\n", num);
-                //     fflush(stdout);
-                // }
-                // else
-                // {
-                //     addToJobList(ampfork, ampfork, ifAmp, "Running");
-                //     printf("%d\n", num);
-                //     fflush(stdout);
-                // }
             }
         }
-        else // execute process in fg
+        else
         {
             pid_t cmdfork = fork();
 
