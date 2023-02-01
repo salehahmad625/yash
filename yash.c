@@ -314,7 +314,7 @@ void sigchild_handler(int signo)
     char *done = "Done";
     while (it != NULL)
     {
-        if (wait_pid = waitpid(it->job_pid, &status, WNOHANG) > 0) // change back to while loop?
+        if (wait_pid = waitpid(it->job_pid, &status, WNOHANG) > 0) // change back to while loop? change pgid to just it->job_pid
         {
             if (WIFEXITED(status))
             {
@@ -368,8 +368,10 @@ void execLine(char **parsedcmd, int lastArgInd)
     return;
 }
 
-void pipeExec(char **parsedcmd, int numArgs, bool bg)
+void pipeExec(char *jobStr, int numArgs, bool bg, pid_t shellpid)
 {
+    char *pipeStr = strdup(jobStr);
+    char **parsedcmd = parseString(jobStr);
     int pipeInd = indOfSym(parsedcmd, "|");
 
     char **leftSub = (char **)malloc(500 * sizeof(char *));
@@ -393,11 +395,15 @@ void pipeExec(char **parsedcmd, int numArgs, bool bg)
         signal(SIGTSTP, SIG_DFL);
         signal(SIGTTIN, SIG_IGN);
         signal(SIGTTOU, SIG_IGN);
+        setpgid(0, 0);
+        tcsetpgrp(0, getpid());
+
         close(pfd[0]);
         dup2(pfd[1], STDOUT_FILENO);
         execLine(leftSub, pipeInd - 1);
     }
-    setpgid(p1, 0);
+    setpgid(p1, p1);
+    tcsetpgrp(0, p1);
     pid_t p2 = fork();
     if (p2 == 0)
     {
@@ -405,23 +411,33 @@ void pipeExec(char **parsedcmd, int numArgs, bool bg)
         signal(SIGTSTP, SIG_DFL);
         signal(SIGTTIN, SIG_IGN);
         signal(SIGTTOU, SIG_IGN);
-        setpgid(getpid(), p1);
+        setpgid(0, p1);
+
         close(pfd[1]);
         dup2(pfd[0], STDIN_FILENO);
         execLine(rightSub, numArgs - 1 - pipeInd);
     }
-    // tcsetpgrp(0, p1);
+    setpgid(p2, p1);
     close(pfd[0]);
     close(pfd[1]);
     if (!bg)
     {
-        wait((int *)NULL);
-        wait((int *)NULL);
+        signal(SIGTTIN, SIG_IGN);
+        signal(SIGTTOU, SIG_IGN);
+        int status;
+        waitpid(-1, &status, WUNTRACED);
+        waitpid(-1, &status, WUNTRACED);
+        if (WIFSTOPPED(status))
+        {
+            addToJobList(p2, getpgid(p2), pipeStr, "Stopped");
+            tcsetpgrp(0, getpgid(shellpid));
+        }
     }
     else
     {
-        waitpid(p1, NULL, WNOHANG);
-        waitpid(p2, NULL, WNOHANG);
+        tcsetpgrp(0, getpgid(shellpid));
+        waitpid(-1, NULL, WNOHANG);
+        waitpid(-1, NULL, WNOHANG);
     }
 }
 
@@ -504,7 +520,7 @@ int main(int argc, char **argv)
         }
         else if (indOfSym(parsedcmd, "|") > -1 && !runInBG)
         {
-            pipeExec(parsedcmd, numArgs, runInBG);
+            pipeExec(jobStr, numArgs, runInBG, shellpid);
         }
 
         // execute command in background
@@ -521,7 +537,8 @@ int main(int argc, char **argv)
                 pid_t currPid = getpid();
                 if (indOfSym(parsedcmd, "|") > -1)
                 {
-                    pipeExec(parsedcmd, numArgs - 1, runInBG);
+                    pipeExec(jobStr, numArgs - 1, runInBG, shellpid);
+                    continue;
                 }
                 else
                 {
