@@ -11,6 +11,9 @@
 #include <errno.h>
 #define min(x, y) (((x) < (y)) ? (x) : (y))
 
+
+//herro dere
+
 typedef enum
 {
     false,
